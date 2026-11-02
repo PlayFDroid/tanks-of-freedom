@@ -1,0 +1,101 @@
+name: Build & Release Tanks of Freedom Android APK
+
+on:
+  push:
+    branches: [ main, master ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    env:
+      ANDROID_BUILD_TOOLS: 35.0.0
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+    steps:
+      - name: Checkout Source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Android Build Tools
+        run: |
+          echo "PATH=$ANDROID_SDK_ROOT/build-tools/$ANDROID_BUILD_TOOLS:$PATH" >> $GITHUB_ENV
+          mkdir -p $HOME/.android
+          keytool -genkey -v -keystore $HOME/.android/debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Debug, OU=Debug, O=Debug, L=Debug, ST=Debug, C=Debug"
+
+      - name: Download Godot 2.1.6 Exporter and Templates
+        run: |
+          mkdir -p $HOME/bin $HOME/.godot/templates $HOME/.local/share/godot/templates
+          curl -sL "https://github.com/godotengine/godot/releases/download/2.1.6-stable/Godot_v2.1.6-stable_linux_server.64.zip" -o godot.zip
+          unzip -q godot.zip -d $HOME/bin/
+          chmod +x $HOME/bin/Godot_v2.1.6-stable_linux_server.64
+          ln -sf $HOME/bin/Godot_v2.1.6-stable_linux_server.64 $HOME/bin/godot_headless
+          ln -sf $HOME/bin/Godot_v2.1.6-stable_linux_server.64 $HOME/bin/linux_server.64
+          echo "$HOME/bin" >> $GITHUB_ENV
+
+          curl -sL "https://github.com/godotengine/godot/releases/download/2.1.6-stable/Godot_v2.1.6-stable_export_templates.tpz" -o templates.zip
+          TMP_TPL=$(mktemp -d)
+          unzip -q templates.zip -d "$TMP_TPL"
+          cp -r "$TMP_TPL/templates/"* "$HOME/.godot/templates/"
+          cp -r "$TMP_TPL/templates/"* "$HOME/.local/share/godot/templates/"
+          rm -rf templates.zip godot.zip "$TMP_TPL"
+
+      - name: Build Android APK
+        run: |
+          chmod +x ./build-android.sh
+          ./build-android.sh
+
+      - name: Verify APK Signatures and Alignment
+        run: |
+          APK=$(find build/ -name "*.apk" | head -n 1)
+          zipalign -c -v 4 "$APK"
+          apksigner verify -v "$APK"
+
+      - name: Sign Release APK (On Tag Only if Secret Present)
+        if: startsWith(github.ref, 'refs/tags/v') && env.KEYSTORE_B64 != ''
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          APK=$(find build/ -name "*.apk" | head -n 1)
+          echo "$KEYSTORE_B64" | base64 -d > release.jks
+          apksigner sign --ks release.jks --ks-pass "pass:$KEYSTORE_PASSWORD" --ks-key-alias "$KEY_ALIAS" --key-pass "pass:$KEY_PASSWORD" "$APK"
+          apksigner verify -v "$APK"
+          rm -f release.jks
+
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: TanksOfFreedom-Android-APK
+          path: build/*.apk
+
+      - name: Publish to GitHub Releases
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: build/*.apk
+          generate_release_notes: true
+
+      - name: Trigger Central F-Droid Index Rebuild
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          curl -L -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${{ secrets.FDROID_DISPATCH_TOKEN }}" \
+            https://api.github.com/repos/${{ github.repository_owner }}/fdroid-repo/dispatches \
+            -d '{"event_type":"new-game-release","client_payload":{"repo":"${{ github.repository }}"}}'

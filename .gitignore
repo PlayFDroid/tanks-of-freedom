@@ -8,6 +8,9 @@ Tanks-of-Freedom.iml
 export.cfg
 *.tmp
 *.keystore
-*export_android.cfg
+!buildConfig/export_android.cfg
 logs/log.txt
 animation_frames.xml
+build/
+export.cfg
+
