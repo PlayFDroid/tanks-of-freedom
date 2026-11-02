@@ -32,7 +32,7 @@ jobs:
 
       - name: Setup Android Build Tools
         run: |
-          echo "PATH=$ANDROID_SDK_ROOT/build-tools/$ANDROID_BUILD_TOOLS:$PATH" >> $GITHUB_ENV
+          echo "$ANDROID_SDK_ROOT/build-tools/$ANDROID_BUILD_TOOLS" >> $GITHUB_PATH
           mkdir -p $HOME/.android
           keytool -genkey -v -keystore $HOME/.android/debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Debug, OU=Debug, O=Debug, L=Debug, ST=Debug, C=Debug"
 
@@ -44,7 +44,7 @@ jobs:
           chmod +x $HOME/bin/Godot_v2.1.6-stable_linux_server.64
           ln -sf $HOME/bin/Godot_v2.1.6-stable_linux_server.64 $HOME/bin/godot_headless
           ln -sf $HOME/bin/Godot_v2.1.6-stable_linux_server.64 $HOME/bin/linux_server.64
-          echo "$HOME/bin" >> $GITHUB_ENV
+          echo "$HOME/bin" >> $GITHUB_PATH
 
           curl -sL "https://github.com/godotengine/godot/releases/download/2.1.6-stable/Godot_v2.1.6-stable_export_templates.tpz" -o templates.zip
           TMP_TPL=$(mktemp -d)
